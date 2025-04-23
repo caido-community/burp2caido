@@ -17,7 +17,7 @@ func TestConverter(t *testing.T) {
 	// Copy test databases from testdata to temp directory
 	files := []string{"database.caido", "database_raw.caido"}
 	for _, file := range files {
-		src := filepath.Join("testdata", file)
+		src := filepath.Join("testdata", "caido", file)
 		dst := filepath.Join(tmpDir, file)
 		if err := copyFile(src, dst); err != nil {
 			t.Fatal(err)
