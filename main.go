@@ -14,8 +14,8 @@ Usage:
 
 import (
 	"flag"
-	"log"
 	"fmt"
+	"log"
 )
 
 func main() {

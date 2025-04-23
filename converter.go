@@ -147,7 +147,6 @@ func (c *Converter) insertIntercept(requestId int64) (int64, error) {
 	return interceptID, nil
 }
 
-
 func openDB(projectPath string) (*sql.DB, error) {
 	// Check if the database exists
 	dbPath := projectPath + "/database.caido"
