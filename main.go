@@ -53,7 +53,7 @@ func main() {
 ██████╔╝╚██████╔╝██║  ██║██║     ███████╗╚██████╗██║  ██║██║██████╔╝╚██████╔╝ by monke v%s
 ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝
 `, "1.2")
-	fmt.Println(banner)
+	log.Println(banner)
 
 	burpsuite := flag.String("burp", "", "Path to Burpsuite XML file")
 	caido := flag.String("caido", "", "Path to Caido project path")
@@ -61,22 +61,19 @@ func main() {
 
 	if *burpsuite == "" {
 		log.Fatal("The --burp flag is required.")
-		os.Exit(1)
 	}
 
 	if *caido == "" {
 		log.Fatal("The --caido flag is required.")
-		os.Exit(1)
 	}
 
-	fmt.Println("[INFO] Using Caido path: " + *caido)
-	fmt.Println("[INFO] Using Burpsuite path: " + *burpsuite)
+	log.Println("[INFO] Using Caido path: " + *caido)
+	log.Println("[INFO] Using Burpsuite path: " + *burpsuite)
 
 	// Open the Caido database
 	db, err := openDB(*caido)
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(1)
 	}
 	defer db.Close()
 
@@ -84,7 +81,6 @@ func main() {
 	xmlFile, err := os.Open(*burpsuite)
 	if err != nil {
 		log.Fatal("Error opening Burpsuite XML file.")
-		os.Exit(1)
 	}
 	defer xmlFile.Close()
 
@@ -101,7 +97,7 @@ func main() {
 			if se.Name.Local == "item" {
 				var item Item
 				decoder.DecodeElement(&item, &se)
-				err := insertData(dbCaido, dbCaidoRaw, item)
+				err := insertData(db, item)
 				if err != nil {
 					log.Fatal(err)
 				}
@@ -109,7 +105,7 @@ func main() {
 		}
 	}
 
-	fmt.Println("\033[32m[INFO] Updated Caido databases successfully.\033[0m")
+	log.Println("\033[32m[INFO] Updated Caido databases successfully.\033[0m")
 }
 
 func openDB(projectPath string) (*sql.DB, error) {
@@ -135,28 +131,28 @@ func openDB(projectPath string) (*sql.DB, error) {
 	return db, nil
 }
 
-func insertData(dbCaido, dbCaidoRaw *sql.DB, item Item) error {
-	responseID, err := insertResponse(dbCaido, dbCaidoRaw, item)
+func insertData(db *sql.DB, item Item) error {
+	responseID, err := insertResponse(db, item)
 	if err != nil {
 		return err
 	}
-	requestID, err := insertRequest(dbCaido, dbCaidoRaw, responseID, item)
+	requestID, err := insertRequest(db, responseID, item)
 	if err != nil {
 		return err
 	}
-	interceptID, err := insertIntercept(dbCaido, dbCaidoRaw, requestID)
+	_, err = insertIntercept(db, requestID)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func insertResponse(db, dbRaw *sql.DB, item Item) (int64, error) {
+func insertResponse(db *sql.DB, item Item) (int64, error) {
 	responseData, _ := base64.StdEncoding.DecodeString(item.Response)
 	timestamp := getTimestamp(item)
 
 	var rawResponseID int64
-	err := dbRaw.QueryRow("INSERT INTO responses_raw (data, source, alteration) VALUES (?, 'intercept', 'none') RETURNING id", responseData).Scan(&rawResponseID)
+	err := db.QueryRow("INSERT INTO raw.responses_raw (data, source, alteration) VALUES (?, 'intercept', 'none') RETURNING id", responseData).Scan(&rawResponseID)
 	if err != nil {
 		return 0, err
 	}
@@ -171,18 +167,18 @@ func insertResponse(db, dbRaw *sql.DB, item Item) (int64, error) {
 	return responseID, nil
 }
 
-func insertRequest(db, dbRaw *sql.DB, responseID int64, item Item) (int64, error) {
+func insertRequest(db *sql.DB, responseID int64, item Item) (int64, error) {
 	requestData, _ := base64.StdEncoding.DecodeString(item.Request)
 	timestamp := getTimestamp(item)
 
 	var rawRequestID int64
-	err := dbRaw.QueryRow("INSERT INTO requests_raw (data, source, alteration) VALUES (?, 'intercept', 'none') RETURNING id", requestData).Scan(&rawRequestID)
+	err := db.QueryRow("INSERT INTO raw.requests_raw (data, source, alteration) VALUES (?, 'intercept', 'none') RETURNING id", requestData).Scan(&rawRequestID)
 	if err != nil {
 		return 0, err
 	}
 
 	var metadataID int64
-	err := db.QueryRow("INSERT INTO requests_metadata DEFAULT VALUES RETURNING id").Scan(&metadataID)
+	err = db.QueryRow("INSERT INTO requests_metadata DEFAULT VALUES RETURNING id").Scan(&metadataID)
 	if err != nil {
 		return 0, err
 	}
@@ -197,7 +193,7 @@ func insertRequest(db, dbRaw *sql.DB, responseID int64, item Item) (int64, error
 	return requestID, nil
 }
 
-func insertIntercept(db, dbRaw *sql.DB, requestId int64) (int64, error) {
+func insertIntercept(db *sql.DB, requestId int64) (int64, error) {
 	var interceptID int64
 	err := db.QueryRow("INSERT INTO intercept_entries (request_id) VALUES (?) RETURNING id", requestId).Scan(&interceptID)
 	if err != nil {
