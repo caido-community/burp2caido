@@ -1,7 +1,7 @@
 package main
 
 /*
-BurpToCaido v1.1 by monke
+BurpToCaido v1.2 by monke
 ---
 This is a utility to convert HTTP history from Burpsuite to Caido.
 Burpsuite HTTP history is exported in XML format. This is formatted and
@@ -46,13 +46,13 @@ type Item struct {
 func main() {
 
 	var banner = fmt.Sprintf(`
-██████╗ ██╗   ██╗██████╗ ██████╗ ██████╗  ██████╗ █████╗ ██╗██████╗  ██████╗ 
+██████╗ ██╗   ██╗██████╗ ██████╗ ██████╗  ██████╗ █████╗ ██╗██████╗  ██████╗
 ██╔══██╗██║   ██║██╔══██╗██╔══██╗╚════██╗██╔════╝██╔══██╗██║██╔══██╗██╔═══██╗
 ██████╔╝██║   ██║██████╔╝██████╔╝ █████╔╝██║     ███████║██║██║  ██║██║   ██║
 ██╔══██╗██║   ██║██╔══██╗██╔═══╝ ██╔═══╝ ██║     ██╔══██║██║██║  ██║██║   ██║
 ██████╔╝╚██████╔╝██║  ██║██║     ███████╗╚██████╗██║  ██║██║██████╔╝╚██████╔╝ by monke v%s
-╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝                                                                       
-`, "1.0")
+╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝
+`, "1.2")
 	fmt.Println(banner)
 
 	burpsuite := flag.String("burp", "", "Path to Burpsuite XML file")
@@ -60,43 +60,35 @@ func main() {
 	flag.Parse()
 
 	if *burpsuite == "" {
-		log.Fatalf("The --burp flag is required.")
+		log.Fatal("The --burp flag is required.")
 		os.Exit(1)
 	}
 
 	if *caido == "" {
-		log.Fatalf("The --caido flag is required.")
+		log.Fatal("The --caido flag is required.")
 		os.Exit(1)
 	}
 
 	fmt.Println("[INFO] Using Caido path: " + *caido)
 	fmt.Println("[INFO] Using Burpsuite path: " + *burpsuite)
 
-	db_main_path := *caido + "/database.caido"
-	if _, err := os.Stat(db_main_path); os.IsNotExist(err) {
-		log.Fatal("Caido main database does not exist.")
-	}
-
-	dbCaido, err := sql.Open("sqlite3", db_main_path)
+	// Open the Caido database
+	db, err := openDB(*caido)
 	if err != nil {
-		log.Fatalf("Error opening database.caido: %v", err)
+		log.Fatal(err)
+		os.Exit(1)
 	}
-	defer dbCaido.Close()
+	defer db.Close()
 
-	db_raw_path := *caido + "/database_raw.caido"
-	if _, err := os.Stat(db_raw_path); os.IsNotExist(err) {
-		log.Fatal("Caido raw database does not exist.")
-	}
-
-	dbCaidoRaw, err := sql.Open("sqlite3", db_raw_path)
+	// Open the Burpsuite XML file
+	xmlFile, err := os.Open(*burpsuite)
 	if err != nil {
-		log.Fatalf("Error opening database_raw.caido: %v", err)
+		log.Fatal("Error opening Burpsuite XML file.")
+		os.Exit(1)
 	}
-	defer dbCaidoRaw.Close()
-
-	xmlFile, _ := os.Open(*burpsuite)
 	defer xmlFile.Close()
 
+	// Parse the XML file and insert the data into the Caido database
 	decoder := xml.NewDecoder(xmlFile)
 	for {
 		token, _ := decoder.Token()
@@ -109,103 +101,120 @@ func main() {
 			if se.Name.Local == "item" {
 				var item Item
 				decoder.DecodeElement(&item, &se)
-				insertData(dbCaido, dbCaidoRaw, item)
+				err := insertData(dbCaido, dbCaidoRaw, item)
+				if err != nil {
+					log.Fatal(err)
+				}
 			}
 		}
 	}
+
 	fmt.Println("\033[32m[INFO] Updated Caido databases successfully.\033[0m")
 }
 
-func insertData(dbCaido, dbCaidoRaw *sql.DB, item Item) {
-	// Used to insert the cleaned data into Caido's databases.
-	requestData, _ := base64.StdEncoding.DecodeString(item.Request)
-	responseData, _ := base64.StdEncoding.DecodeString(item.Response)
+func openDB(projectPath string) (*sql.DB, error) {
+	// Check if the database exists
+	dbPath := projectPath + "/database.caido"
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("Caido main database does not exist")
+	}
 
+	// Open the database
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("Error opening database.caido: %v", err)
+	}
+
+	// Attach the raw database
+	dbRawPath := projectPath + "/database_raw.caido"
+	_, err = db.Exec(fmt.Sprintf("ATTACH DATABASE '%s' AS raw", dbRawPath))
+	if err != nil {
+		return nil, fmt.Errorf("Error attaching database_raw.caido: %v", err)
+	}
+
+	return db, nil
+}
+
+func insertData(dbCaido, dbCaidoRaw *sql.DB, item Item) error {
+	responseID, err := insertResponse(dbCaido, dbCaidoRaw, item)
+	if err != nil {
+		return err
+	}
+	requestID, err := insertRequest(dbCaido, dbCaidoRaw, responseID, item)
+	if err != nil {
+		return err
+	}
+	interceptID, err := insertIntercept(dbCaido, dbCaidoRaw, requestID)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func insertResponse(db, dbRaw *sql.DB, item Item) (int64, error) {
+	responseData, _ := base64.StdEncoding.DecodeString(item.Response)
+	timestamp := getTimestamp(item)
+
+	var rawResponseID int64
+	err := dbRaw.QueryRow("INSERT INTO responses_raw (data, source, alteration) VALUES (?, 'intercept', 'none') RETURNING id", responseData).Scan(&rawResponseID)
+	if err != nil {
+		return 0, err
+	}
+
+	var responseID int64
+	err = db.QueryRow("INSERT INTO responses (status_code, raw_id, length, alteration, edited, roundtrip_time, created_at) VALUES (?, ?, ?, 'none', 0, 0, ?) RETURNING id",
+		item.Status, rawResponseID, item.ResponseLength, timestamp).Scan(&responseID)
+	if err != nil {
+		return 0, err
+	}
+
+	return responseID, nil
+}
+
+func insertRequest(db, dbRaw *sql.DB, responseID int64, item Item) (int64, error) {
+	requestData, _ := base64.StdEncoding.DecodeString(item.Request)
+	timestamp := getTimestamp(item)
+
+	var rawRequestID int64
+	err := dbRaw.QueryRow("INSERT INTO requests_raw (data, source, alteration) VALUES (?, 'intercept', 'none') RETURNING id", requestData).Scan(&rawRequestID)
+	if err != nil {
+		return 0, err
+	}
+
+	var metadataID int64
+	err := db.QueryRow("INSERT INTO requests_metadata DEFAULT VALUES RETURNING id").Scan(&metadataID)
+	if err != nil {
+		return 0, err
+	}
+
+	var requestID int64
+	err = db.QueryRow("INSERT INTO requests (host, method, path, length, port, is_tls, raw_id, query, response_id, source, created_at, metadata_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'intercept', ?, ?) RETURNING id",
+		item.Host, item.Method, item.Path, len(requestData), item.Port, item.Protocol == "https", rawRequestID, "", responseID, timestamp, metadataID).Scan(&requestID)
+	if err != nil {
+		return 0, err
+	}
+
+	return requestID, nil
+}
+
+func insertIntercept(db, dbRaw *sql.DB, requestId int64) (int64, error) {
+	var interceptID int64
+	err := db.QueryRow("INSERT INTO intercept_entries (request_id) VALUES (?) RETURNING id", requestId).Scan(&interceptID)
+	if err != nil {
+		return 0, err
+	}
+
+	return interceptID, nil
+}
+
+func getTimestamp(item Item) int64 {
 	layout := "Mon Jan 02 15:04:05 MST 2006"
 	parsedTime, err := time.Parse(layout, item.Time)
 	if err != nil {
 		log.Fatalf("Failed to parse datetime: %v", err)
 	}
+
 	timestamp := parsedTime.UnixNano() / int64(time.Millisecond)
 
-	// database_raw.caido
-	txRaw, err := dbCaidoRaw.Begin()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	res, err := txRaw.Exec("INSERT INTO requests_raw (data, source, alteration) VALUES (?, 'intercept', 'none')", requestData)
-	if err != nil {
-		txRaw.Rollback()
-		log.Fatal(err)
-	}
-	rawRequestID, err := res.LastInsertId()
-	if err != nil {
-		txRaw.Rollback()
-		log.Fatal(err)
-	}
-
-	res, err = txRaw.Exec("INSERT INTO responses_raw (data, source, alteration) VALUES (?, 'intercept', 'none')", responseData)
-	if err != nil {
-		txRaw.Rollback()
-		log.Fatal(err)
-	}
-	rawResponseID, err := res.LastInsertId()
-	if err != nil {
-		txRaw.Rollback()
-		log.Fatal(err)
-	}
-	txRaw.Commit()
-
-	// database.caido
-	tx, err := dbCaido.Begin()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	_, err = tx.Exec("INSERT INTO responses (status_code, raw_id, length, alteration, edited, roundtrip_time, created_at) VALUES (?, ?, ?, 'none', 0, 0, ?)",
-		item.Status, rawResponseID, item.ResponseLength, timestamp)
-	if err != nil {
-		tx.Rollback()
-		log.Fatal(err)
-	}
-
-	responseID, err := res.LastInsertId()
-	if err != nil {
-		tx.Rollback()
-		log.Fatal(err)
-	}
-
-	requestID, err := res.LastInsertId()
-	if err != nil {
-		tx.Rollback()
-		log.Fatal(err)
-	}
-	_, err = tx.Exec("INSERT INTO requests_metadata (id) VALUES (?)", requestID)
-	if err != nil {
-		txRaw.Rollback()
-		log.Fatal(err)
-	}
-
-	_, err = tx.Exec("INSERT INTO requests (host, method, path, length, port, is_tls, raw_id, query, response_id, source, created_at, metadata_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'intercept', ?, ?)",
-		item.Host, item.Method, item.Path, len(requestData), item.Port, item.Protocol == "https", rawRequestID, "", responseID, timestamp, rawRequestID)
-	if err != nil {
-		tx.Rollback()
-		log.Fatal(err)
-	}
-
-	intercept_id, err := res.LastInsertId()
-	if err != nil {
-		tx.Rollback()
-		log.Fatal(err)
-	}
-
-	_, err = tx.Exec("INSERT INTO intercept_entries (id, request_id) VALUES (?, ?)",
-		intercept_id, intercept_id)
-	if err != nil {
-		tx.Rollback()
-		log.Fatal(err)
-	}
-
-	tx.Commit()
+	return timestamp
 }
