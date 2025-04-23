@@ -121,12 +121,16 @@ func openDB(projectPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("Error opening database.caido: %v", err)
 	}
 
+	log.Println("[INFO] Opened database.caido")
+
 	// Attach the raw database
 	dbRawPath := projectPath + "/database_raw.caido"
 	_, err = db.Exec(fmt.Sprintf("ATTACH DATABASE '%s' AS raw", dbRawPath))
 	if err != nil {
 		return nil, fmt.Errorf("Error attaching database_raw.caido: %v", err)
 	}
+
+	log.Println("[INFO] Attached database_raw.caido")
 
 	return db, nil
 }
