@@ -1,9 +1,18 @@
 # About
-**Burp2Caido** is a tool that allows you to migrate exported Burpsuite HTTP history files into Caido. If you have any questions, reach out to me on [Twitter](https://twitter.com/monkehack).
-# Installation
-`go install -v github.com/projectmonke/burp2caido@latest`
-# Usage
+
+**Burp2Caido** is a tool that allows you to migrate exported Burpsuite HTTP history files into Caido. It was originaly developed by [Monke](https://github.com/projectmonke).
+
+> [!WARNING]
+> This tool inserts HTTP data directly into the Caido project. Running it multiple times WILL add the requests again each time. Run it once!
+
+## Installation
+
+`go install -v github.com/caido-community/burp2caido@latest`
+
+## Usage
+
 The tool takes two command-line arguments.
+
 - `--burp` specifies where the HTTP history XML file is.
 - `--caido` specifies where the Caido project folder is.
 
@@ -12,8 +21,8 @@ The tool takes two command-line arguments.
 3. Run the following command, replacing the placeholders with the two paths above: `burp2caido --burp <burpsuite path> --caido <caido path>`
 4. If you switch out of your new Caido project and switch back to it, you should see the traffic in the HTTP History tab in Caido.
 
-# Warning
-This tool inserts HTTP data directly into the Caido project. Running it multiple times WILL add the requests again each time. Run it once!
+## Found a bug?
 
-# Disclaimer
-If something is broken, fork it yourself and fix it. I'm usually pretty busy. I do intend on expanding the capabilities of this tool, but I'm making no promises about when that'll happen. However, feel free to open issues and I'll try to answer them. Also, sometimes Caido just deletes the imported history or it won't be visible, and I have no idea why, so please just try again if that happens.
+Thanks for using our tool! We do our best to make sure the tool is updated as the file structure of Caido evolves but it might be broken at times.
+
+Please open an issue if you face any problem 🙏
